@@ -1,0 +1,84 @@
+﻿const ARL_TOKEN = "a31df4abe7849bd1b7b8d8f5993057414c011f9152c1594293a85c0f45fdad8801db3a804f845283fce49199e893c18b96899c1ec75a8cda563c888f729843a0944f847b47c3483375dec9db97dd1918a96a11aa75ed66d7a1606d0a5d55d383"; 
+
+return {
+  id: "custom-deezer-arl-module",
+  name: "Deezer ARL Streamer",
+  version: "1.0.0",
+  labels: ["DEEZER", "320KBPS", "LOSSLESS"],
+
+  /**
+   * Search tracks on Deezer API
+   * @param {string} query - Track search query
+   * @param {number} limit - Max results
+   */
+  async searchTracks(query, limit = 20) {
+    try {
+      const searchUrl = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=${limit}`;
+      const response = await fetch(searchUrl);
+      const data = await response.json();
+
+      if (!data || !data.data) {
+        return { tracks: [], total: 0 };
+      }
+
+      const tracks = data.data.map((item) => ({
+        id: item.id.toString(),
+        title: item.title,
+        artist: item.artist ? item.artist.name : "Unknown Artist",
+        album: item.album ? item.album.title : "",
+        duration: item.duration,
+        albumCover: item.album ? item.album.cover_xl || item.album.cover_medium : ""
+      }));
+
+      return {
+        tracks: tracks,
+        total: tracks.length
+      };
+    } catch (error) {
+      console.error("[Deezer Module] Search failed:", error);
+      return { tracks: [], total: 0 };
+    }
+  },
+
+  /**
+   * Resolves the direct playable audio stream URL for 8SPINE
+   * @param {string} id - Deezer track ID
+   * @param {string} quality - 'LOSSLESS', 'HIGH', or 'LOW'
+   */
+  async getTrackStreamUrl(id, quality = "HIGH") {
+    try {
+      // 1. Fetch track information & stream payload from Deezer gateway using your session token
+      const sessionRes = await fetch("https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&input=3&api_version=1.0&api_token=", {
+        headers: {
+          "Cookie": `arl=${ARL_TOKEN}`
+        }
+      });
+      const sessionData = await sessionRes.json();
+      const userToken = sessionData?.results?.SESSION_ID;
+
+      // 2. Query direct track stream URL metadata
+      const streamRes = await fetch("https://www.deezer.com/ajax/gw-light.php?method=song.getData&input=3&api_version=1.0&api_token=", {
+        method: "POST",
+        headers: {
+          "Cookie": `arl=${ARL_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ sNG_ID: id })
+      });
+      const streamData = await streamRes.json();
+
+      // Fallback preview stream if pipe stream URL is restricted
+      const streamUrl = streamData?.results?.TRACK_URL || `https://cdns-preview-d.dzcdn.net/stream/${id}`;
+
+      return {
+        streamUrl: streamUrl,
+        track: {
+          id: id,
+          audioQuality: quality === "LOSSLESS" ? "FLAC" : "320KBPS"
+        }
+      };
+    } catch (error) {
+      console.error("[Deezer Module] Failed to fetch track stream:", error);
+      throw error;
+    }
+  }
